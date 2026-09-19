@@ -198,9 +198,6 @@ public class SecurityConfig {
                                 "/sla/**"
                         ).hasRole("ADMIN")
 
-                        // =====================================
-                        // CURRENT USER
-                        // =====================================
 
                         .requestMatchers(
                                 "/me"
