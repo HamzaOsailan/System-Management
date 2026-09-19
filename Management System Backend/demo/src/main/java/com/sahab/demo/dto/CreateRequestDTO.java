@@ -1,40 +1,22 @@
 package com.sahab.demo.dto;
 
+import com.sahab.demo.enums.RequestCategory;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import lombok.Getter;
+import lombok.Setter;
 
+@Getter
+@Setter
 public class CreateRequestDTO {
 
-    @NotBlank(message= "Title is required")
+    @NotBlank(message = "Title is required")
     private String title;
-    @NotBlank(message= "Description is required")
+
+    @NotBlank(message = "Description is required")
     private String description;
-    @NotNull(message= "UserId is required")
-    private Long userId;
 
-    public CreateRequestDTO(){
+    private RequestCategory category;
 
-    }
-    public String getTitle(){
-        return title;
-    }
-    public void setTitle(String title){
-        this.title=title;
-    }
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
+    public CreateRequestDTO() {
     }
 }
-

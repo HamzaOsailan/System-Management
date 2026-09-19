@@ -1,6 +1,6 @@
 package com.sahab.demo.mapper;
 
-import com.sahab.demo.dto.RequestDTO;
+import com.sahab.demo.dto.CreateRequestDTO;
 import com.sahab.demo.dto.RequestResponse;
 import com.sahab.demo.entity.Request;
 import com.sahab.demo.entity.User;
@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Component
 public class RequestMapper {
 
-    public Request toEntity(RequestDTO dto, User user){
+    public Request toEntity(CreateRequestDTO dto, User user){
         Request request =new Request();
 
         request.setTitle(dto.getTitle());

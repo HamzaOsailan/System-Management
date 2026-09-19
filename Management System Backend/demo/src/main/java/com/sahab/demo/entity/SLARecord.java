@@ -1,2 +1,4 @@
-package com.sahab.demo.entity;public class SLARecord {
+package com.sahab.demo.entity;
+
+public class SLARecord {
 }

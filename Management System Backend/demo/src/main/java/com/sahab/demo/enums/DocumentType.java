@@ -1,2 +1,7 @@
-package com.sahab.demo.enums;public class DocumentType {
+
+package com.sahab.demo.enums;
+
+public enum DocumentType {
+    CV,
+    ATTACHMENT
 }

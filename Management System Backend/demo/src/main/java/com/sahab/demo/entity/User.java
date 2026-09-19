@@ -6,6 +6,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @Entity
@@ -25,5 +27,13 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     private Role role;
+
+    // جديد: خاصين بميزة "نسيت الباسورد"
+    // WRITE_ONLY عشان ما يطلعوا أبدًا بأي API response (زي password بالضبط)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private String resetToken;
+
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private LocalDateTime resetTokenExpiry;
 
 }
