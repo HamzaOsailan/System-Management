@@ -1,0 +1,18 @@
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: sahab-postgres-lab
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sahab_student
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: sahab_learning
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - sahab_pgdata:/var/lib/postgresql
+
+volumes:
+  sahab_pgdata:
+    external: true
