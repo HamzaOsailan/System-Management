@@ -1,703 +1,1539 @@
-import { useEffect, useState } from "react";
-import toast from "react-hot-toast";
+﻿import {
+  useEffect,
+  useState,
+  type ChangeEvent,
+} from "react";
+import { useTranslation } from "react-i18next";
+import axios from "axios";
 import {
-  User as UserIcon,
-  Lock,
-  FileText,
-  Upload,
-  Download,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  UserRound,
 } from "lucide-react";
+import { motion } from "framer-motion";
 
-import Sidebar from "../components/Sidebar";
-import Navbar from "../components/Navbar";
 
-import api from "../api/axios";
+import ProfileHeader from "../components/profile/ProfileHeader";
+import ProfileTabs from "../components/profile/ProfileTabs";
+import ProfileOverview from "../components/profile/ProfileOverview";
+import ProfilePersonal from "../components/profile/ProfilePersonal";
+import ProfileEmployment from "../components/profile/ProfileEmployment";
+import ProfileDocuments from "../components/profile/ProfileDocuments";
+import ProfileSecurity from "../components/profile/ProfileSecurity";
 
-type CurrentUser = {
-  name: string;
-  email: string;
-  role: string;
+import EditProfileModal, {
+  type ProfileFormData,
+} from "../components/profile/EditProfileModal";
+
+import ChangePasswordModal from "../components/profile/ChangePasswordModal";
+
+import type {
+  DocumentItem,
+  EmployeeProfile,
+  TabType,
+} from "../types/profile";
+
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:8080";
+
+interface PasswordState {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+const EMPTY_PASSWORD: PasswordState = {
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
 };
 
-function Profile() {
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [loading, setLoading] = useState(true);
+const EMPTY_PROFILE_FORM: ProfileFormData = {
+  name: "",
+  phone: "",
+  address: "",
+  dateOfBirth: "",
+  nationality: "",
+  jobTitle: "",
+  department: "",
+  employmentType: "",
+  workLocation: "",
+  workingHours: "",
+  bankName: "",
+  bankBranch: "",
+  accountNumber: "",
+  accountHolderName: "",
+  accountType: "",
+  iban: "",
+};
 
-  const [name, setName] = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
+const createProfileForm = (
+  profile: EmployeeProfile
+): ProfileFormData => ({
+  name: profile.name || "",
+  phone: profile.phone || "",
+  address: profile.address || "",
+  dateOfBirth: profile.dateOfBirth || "",
+  nationality: profile.nationality || "",
+  jobTitle: profile.jobTitle || "",
+  department: profile.department || "",
+  employmentType: profile.employmentType || "",
+  workLocation: profile.workLocation || "",
+  workingHours: profile.workingHours || "",
+  bankName: profile.bankName || "",
+  bankBranch: profile.bankBranch || "",
+  accountNumber: profile.accountNumber || "",
+  accountHolderName:
+    profile.accountHolderName || "",
+  accountType: profile.accountType || "",
+  iban: profile.iban || "",
+});
 
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [savingPassword, setSavingPassword] = useState(false);
+const getToken = (): string | null => {
+  return localStorage.getItem("token");
+};
 
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [uploadingCV, setUploadingCV] = useState(false);
-  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+const getAuthHeaders = (): Record<string, string> => {
+  const token = getToken();
 
-  const fetchProfile = async () => {
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+};
+
+const getErrorMessage = (
+  error: unknown,
+  fallback: string
+): string => {
+  if (axios.isAxiosError(error)) {
+    const message =
+      error.response?.data?.message;
+
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+
+  return fallback;
+};
+
+const Profile = () => {
+  const { t, i18n } = useTranslation();
+
+  const isArabic =
+    i18n.language?.startsWith("ar");
+
+  const direction = isArabic
+    ? "rtl"
+    : "ltr";
+
+  const [profile, setProfile] =
+    useState<EmployeeProfile | null>(null);
+
+  const [documents, setDocuments] =
+    useState<DocumentItem[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [documentsLoading, setDocumentsLoading] =
+    useState(false);
+
+  const [profileError, setProfileError] =
+    useState<string | null>(null);
+
+  const [activeTab, setActiveTab] =
+    useState<TabType>("overview");
+
+  const [editing, setEditing] =
+    useState(false);
+
+  const [changingPassword, setChangingPassword] =
+    useState(false);
+
+  const [savingProfile, setSavingProfile] =
+    useState(false);
+
+  const [savingPassword, setSavingPassword] =
+    useState(false);
+
+  const [uploading, setUploading] =
+    useState(false);
+
+  const [form, setForm] =
+    useState<ProfileFormData>(
+      EMPTY_PROFILE_FORM
+    );
+
+  const [passwordForm, setPasswordForm] =
+    useState<PasswordState>(
+      EMPTY_PASSWORD
+    );
+
+  // =========================================================
+  // LOAD PROFILE
+  // =========================================================
+
+  const loadProfile = async () => {
     try {
-      const res = await api.get("/me");
-      setUser(res.data);
-      setName(res.data.name || "");
+      setLoading(true);
+      setProfileError(null);
+
+      const response = await axios.get(
+        `${API_URL}/employee-profile`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+
+      const data: EmployeeProfile =
+        response.data;
+      console.log("PROFILE JOB TITLE RAW:", {
+        json: JSON.stringify(data?.jobTitle),
+        value: data?.jobTitle,
+        type: typeof data?.jobTitle,
+      });
+
+
+      console.log(
+        "========== PROFILE RESPONSE =========="
+      );
+      console.log(
+        "PROFILE RESPONSE DATA:",
+        data
+      );
+      console.log(
+        "PROFILE NAME:",
+        data?.name
+      );
+      console.log(
+        "PROFILE EMAIL:",
+        data?.email
+      );
+      console.log(
+        "PROFILE ROLE:",
+        data?.role
+      );
+      console.log(
+        "PROFILE ROLE TYPE:",
+        typeof data?.role
+      );
+      console.log(
+        "======================================"
+      );
+
+      setProfile(data);
+      setForm(createProfileForm(data));
     } catch (error) {
-      console.log(error);
-      toast.error("Failed to load profile");
+      console.error(
+        "Failed to load profile:",
+        error
+      );
+
+      if (axios.isAxiosError(error)) {
+        const status =
+          error.response?.status;
+
+        if (status === 401) {
+          setProfileError(
+            t(
+              "profile.errors.sessionExpired"
+            )
+          );
+        } else if (status === 403) {
+          setProfileError(
+            t(
+              "profile.errors.forbidden"
+            )
+          );
+        } else if (status === 404) {
+          setProfileError(
+            t(
+              "profile.errors.notFound"
+            )
+          );
+        } else if (status === 500) {
+          setProfileError(
+            t(
+              "profile.errors.server"
+            )
+          );
+        } else {
+          setProfileError(
+            getErrorMessage(
+              error,
+              t("profile.errors.load")
+            )
+          );
+        }
+      } else {
+        setProfileError(
+          t("profile.errors.unexpected")
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchDocuments = async () => {
+  // =========================================================
+  // LOAD DOCUMENTS
+  // =========================================================
+
+  const loadDocuments = async () => {
     try {
-      const res = await api.get("/profile/documents");
-      setDocuments(res.data);
+      setDocumentsLoading(true);
+
+      const response = await axios.get(
+        `${API_URL}/profile/documents`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+
+      const data = response.data;
+
+      if (Array.isArray(data)) {
+        setDocuments(data);
+      } else if (
+        data &&
+        Array.isArray(data.documents)
+      ) {
+        setDocuments(data.documents);
+      } else {
+        setDocuments([]);
+      }
     } catch (error) {
-      console.log(error);
+      console.error(
+        "Failed to load documents:",
+        error
+      );
+
+      setDocuments([]);
+    } finally {
+      setDocumentsLoading(false);
     }
   };
+
+  // =========================================================
+  // INITIAL LOAD
+  // =========================================================
 
   useEffect(() => {
-    fetchProfile();
-    fetchDocuments();
+    const loadData = async () => {
+      await loadProfile();
+      await loadDocuments();
+    };
+
+    void loadData();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===============================
-  // رفع الـ CV — منطق كامل هالمرة
-  // ===============================
-  const handleUploadCV = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      setUploadingCV(true);
-
-      await api.post("/profile/documents/cv", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      toast.success("CV uploaded successfully");
-
-      await fetchDocuments();
-    } catch (error: any) {
-      toast.error(
-        error.response?.data?.message || "Failed to upload CV"
-      );
-    } finally {
-      setUploadingCV(false);
-      e.target.value = "";
-    }
-  };
-
-  // ===============================
-  // رفع المرفق — الشرط اتصلح، المنطق صار برا الـ if
-  // ===============================
-  const handleUploadAttachment = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      setUploadingAttachment(true);
-
-      await api.post("/profile/documents/attachment", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      toast.success("Attachment uploaded successfully");
-
-      await fetchDocuments();
-    } catch (error: any) {
-      toast.error(
-        error.response?.data?.message ||
-          "Failed to upload attachment"
-      );
-    } finally {
-      setUploadingAttachment(false);
-      e.target.value = "";
-    }
-  };
+  // =========================================================
+  // SAVE PROFILE
+  // =========================================================
 
   const handleSaveProfile = async () => {
-    if (!name.trim()) {
-      toast.error("Name cannot be empty");
+    if (!form.name.trim()) {
+      alert(
+        t("profile.validation.nameRequired")
+      );
+
       return;
     }
 
-    setSavingProfile(true);
-
     try {
-      const res = await api.put("/me", { name });
-      setUser(res.data);
-      toast.success("Profile updated");
-    } catch (error: any) {
-      const message =
-        error.response?.data?.message || "Failed to update profile";
-      toast.error(message);
+      setSavingProfile(true);
+
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        address: form.address.trim(),
+        dateOfBirth: form.dateOfBirth,
+        nationality: form.nationality.trim(),
+
+        bankName: form.bankName.trim(),
+        bankBranch: form.bankBranch.trim(),
+        accountNumber:
+          form.accountNumber.trim(),
+        accountHolderName:
+          form.accountHolderName.trim(),
+        accountType: form.accountType,
+        iban: form.iban.trim(),
+      };
+
+      const response = await axios.put(
+        `${API_URL}/employee-profile`,
+        payload,
+        {
+          headers: {
+            ...getAuthHeaders(),
+            "Content-Type":
+              "application/json",
+          },
+        }
+      );
+
+      const updatedProfile: EmployeeProfile =
+        response.data;
+
+      console.log(
+        "UPDATED PROFILE RESPONSE:",
+        updatedProfile
+      );
+
+      console.log(
+        "UPDATED PROFILE ROLE:",
+        updatedProfile?.role
+      );
+
+      setProfile(updatedProfile);
+
+      setForm(
+        createProfileForm(
+          updatedProfile
+        )
+      );
+
+      setEditing(false);
+
+      alert(
+        t(
+          "profile.messages.profileUpdated"
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Failed to update profile:",
+        error
+      );
+
+      alert(
+        getErrorMessage(
+          error,
+          t("profile.errors.update")
+        )
+      );
     } finally {
       setSavingProfile(false);
     }
   };
 
-  const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      toast.error("Please fill in all password fields");
+  // =========================================================
+  // CHANGE PASSWORD
+  // =========================================================
+
+  const handleChangePassword =
+    async () => {
+      if (
+        !passwordForm.currentPassword.trim()
+      ) {
+        alert(
+          t(
+            "profile.validation.currentPassword"
+          )
+        );
+
+        return;
+      }
+
+      if (
+        !passwordForm.newPassword.trim()
+      ) {
+        alert(
+          t(
+            "profile.validation.newPassword"
+          )
+        );
+
+        return;
+      }
+
+      if (
+        passwordForm.newPassword.length < 6
+      ) {
+        alert(
+          t(
+            "profile.validation.passwordMin"
+          )
+        );
+
+        return;
+      }
+
+      if (
+        !passwordForm.confirmPassword.trim()
+      ) {
+        alert(
+          t(
+            "profile.validation.confirmPassword"
+          )
+        );
+
+        return;
+      }
+
+      if (
+        passwordForm.newPassword !==
+        passwordForm.confirmPassword
+      ) {
+        alert(
+          t(
+            "profile.validation.passwordMismatch"
+          )
+        );
+
+        return;
+      }
+
+      try {
+        setSavingPassword(true);
+
+        await axios.put(
+          `${API_URL}/employee-profile/change-password`,
+          {
+            currentPassword:
+              passwordForm.currentPassword,
+            newPassword:
+              passwordForm.newPassword,
+          },
+          {
+            headers: {
+              ...getAuthHeaders(),
+              "Content-Type":
+                "application/json",
+            },
+          }
+        );
+
+        setPasswordForm(
+          EMPTY_PASSWORD
+        );
+
+        setChangingPassword(false);
+
+        alert(
+          t(
+            "profile.messages.passwordUpdated"
+          )
+        );
+      } catch (error) {
+        console.error(
+          "Failed to change password:",
+          error
+        );
+
+        alert(
+          getErrorMessage(
+            error,
+            t(
+              "profile.errors.passwordUpdate"
+            )
+          )
+        );
+      } finally {
+        setSavingPassword(false);
+      }
+    };
+
+  // =========================================================
+  // UPLOAD DOCUMENT
+  // =========================================================
+
+  const handleUpload = async (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    if (!file) {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters");
+    if (
+      file.size >
+      5 * 1024 * 1024
+    ) {
+      alert(
+        t("profile.validation.fileSize")
+      );
+
+      event.target.value = "";
+
       return;
     }
-
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords don't match");
-      return;
-    }
-
-    setSavingPassword(true);
 
     try {
-      await api.put("/me/password", {
-        currentPassword,
-        newPassword,
-      });
+      setUploading(true);
 
-      toast.success("Password updated");
+      const formData = new FormData();
 
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (error: any) {
-      const message =
-        error.response?.data?.message || "Failed to update password";
-      toast.error(message);
+      formData.append(
+        "file",
+        file
+      );
+
+      await axios.post(
+        `${API_URL}/profile/documents/attachment`,
+        formData,
+        {
+          headers: {
+            ...getAuthHeaders(),
+          },
+        }
+      );
+
+      event.target.value = "";
+
+      await loadDocuments();
+
+      alert(
+        t(
+          "profile.messages.documentUploaded"
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Failed to upload document:",
+        error
+      );
+
+      alert(
+        getErrorMessage(
+          error,
+          t(
+            "profile.errors.documentUpload"
+          )
+        )
+      );
+
+      event.target.value = "";
     } finally {
-      setSavingPassword(false);
+      setUploading(false);
     }
   };
+
+  // =========================================================
+  // VIEW DOCUMENT
+  // =========================================================
+
+  const handleViewDocument = async (
+    documentId: number
+  ) => {
+    // Open the tab immediately during the user's click.
+    // This avoids mobile browser popup blockers after an async request.
+    const documentWindow = window.open("about:blank", "_blank");
+
+    if (!documentWindow) {
+      alert(
+        t("profile.errors.documentOpen")
+      );
+      return;
+    }
+
+    documentWindow.opener = null;
+
+    try {
+      const response =
+        await axios.get(
+          `${API_URL}/profile/documents/${documentId}/download`,
+          {
+            headers:
+              getAuthHeaders(),
+            responseType: "blob",
+          }
+        );
+
+      const contentTypeHeader = response.headers["content-type"];
+      const contentType =
+        typeof contentTypeHeader === "string"
+          ? contentTypeHeader
+          : "application/octet-stream";
+
+      const blob = new Blob(
+        [response.data],
+        { type: contentType }
+      );
+
+      const url =
+        window.URL.createObjectURL(
+          blob
+        );
+
+      documentWindow.location.replace(url);
+
+      // Keep the object URL available longer for mobile document viewers.
+      window.setTimeout(
+        () => {
+          window.URL.revokeObjectURL(url);
+        },
+        300000
+      );
+    } catch (error) {
+      documentWindow.close();
+
+      console.error(
+        "Failed to open document:",
+        error
+      );
+
+      alert(
+        getErrorMessage(
+          error,
+          t(
+            "profile.errors.documentOpen"
+          )
+        )
+      );
+    }
+  };
+
+  // =========================================================
+  // EDIT PROFILE
+  // =========================================================
+
+  const openEditModal = () => {
+    if (!profile) {
+      return;
+    }
+
+    setForm(
+      createProfileForm(profile)
+    );
+
+    setEditing(true);
+  };
+
+  const closeEditModal = () => {
+    if (savingProfile) {
+      return;
+    }
+
+    if (profile) {
+      setForm(
+        createProfileForm(profile)
+      );
+    }
+
+    setEditing(false);
+  };
+
+  // =========================================================
+  // PASSWORD MODAL
+  // =========================================================
+
+  const openPasswordModal = () => {
+    setPasswordForm(
+      EMPTY_PASSWORD
+    );
+
+    setChangingPassword(true);
+  };
+
+  const closePasswordModal = () => {
+    if (savingPassword) {
+      return;
+    }
+
+    setPasswordForm(
+      EMPTY_PASSWORD
+    );
+
+    setChangingPassword(false);
+  };
+
+  // =========================================================
+  // DOCUMENTS TAB
+  // =========================================================
+
+  const handleDocumentsTab = () => {
+    setActiveTab("documents");
+
+    void loadDocuments();
+  };
+
+  // =========================================================
+  // LOADING
+  // =========================================================
 
   if (loading) {
     return (
       <div
+        dir={direction}
         className="
+          sahab-profile-page relative
           min-h-screen
-          bg-[#020617]
-          flex
-          items-center
-          justify-center
+          w-full
+          overflow-hidden
+          bg-slate-50
+          text-slate-900
+          dark:bg-[#020617]
+          dark:text-white
         "
       >
-        <div
-          className="
-            w-16
-            h-16
-            border-4
-            border-blue-500
-            border-t-transparent
-            rounded-full
-            animate-spin
-          "
-        />
+
+
+        <main className="min-h-screen">
+          <div className="relative min-h-screen flex items-center justify-center px-4">
+            <div className="pointer-events-none absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/10 blur-[120px] dark:bg-cyan-500/[0.06]" />
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 15,
+                scale: 0.96,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+              }}
+              className="
+                relative
+                flex
+                flex-col
+                items-center
+                gap-5
+                rounded-[30px]
+                border
+                border-slate-200
+                bg-white/90
+                px-10
+                py-9
+                shadow-xl
+                shadow-slate-900/5
+                backdrop-blur-xl
+                dark:border-white/[0.08]
+                dark:bg-white/[0.035]
+                dark:shadow-black/20
+              "
+            >
+              <div
+                className="
+                  relative
+                  flex
+                  h-16
+                  w-16
+                  items-center
+                  justify-center
+                  rounded-2xl
+                  border
+                  border-cyan-500/20
+                  bg-cyan-500/10
+                "
+              >
+                <Loader2
+                  className="
+                    h-7
+                    w-7
+                    animate-spin
+                    text-cyan-500
+                    dark:text-cyan-400
+                  "
+                />
+
+                <div className="absolute -inset-2 rounded-3xl border border-cyan-500/10 animate-pulse" />
+              </div>
+
+              <div className="text-center">
+                <p className="font-bold text-slate-800 dark:text-white">
+                  {t("profile.loading")}
+                </p>
+
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+                  {isArabic
+                    ? "جاري تحميل بيانات حسابك"
+                    : "Loading your account information"}
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </main>
       </div>
     );
   }
 
-  const initial = user?.name ? user.name.charAt(0).toUpperCase() : "";
+  // =========================================================
+  // ERROR
+  // =========================================================
+
+  if (
+    profileError ||
+    !profile
+  ) {
+    return (
+      <div
+        dir={direction}
+        className="
+          sahab-profile-page relative
+          min-h-screen
+          w-full
+          overflow-hidden
+          bg-slate-50
+          text-slate-900
+          dark:bg-[#020617]
+          dark:text-white
+        "
+      >
+
+
+        <main className="min-h-screen">
+          <div className="relative min-h-screen flex items-center justify-center px-4">
+            <div className="pointer-events-none absolute left-1/2 top-1/2 h-[450px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/5 blur-[120px]" />
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 18,
+                scale: 0.97,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+              }}
+              className="
+                relative
+                w-full
+                max-w-lg
+                rounded-[30px]
+                border
+                border-red-200
+                bg-white/90
+                p-7
+                text-center
+                shadow-xl
+                shadow-slate-900/5
+                backdrop-blur-xl
+                dark:border-red-500/20
+                dark:bg-white/[0.035]
+                dark:shadow-black/20
+                sm:p-9
+              "
+            >
+              <div
+                className="
+                  mx-auto
+                  flex
+                  h-16
+                  w-16
+                  items-center
+                  justify-center
+                  rounded-2xl
+                  bg-red-500/10
+                "
+              >
+                <AlertCircle
+                  className="
+                    h-8
+                    w-8
+                    text-red-500
+                    dark:text-red-400
+                  "
+                />
+              </div>
+
+              <h2
+                className="
+                  mt-5
+                  text-xl
+                  font-black
+                  text-slate-900
+                  dark:text-white
+                  sm:text-2xl
+                "
+              >
+                {t(
+                  "profile.errors.title"
+                )}
+              </h2>
+
+              <p
+                className="
+                  mt-3
+                  text-sm
+                  leading-7
+                  text-slate-500
+                  dark:text-slate-400
+                "
+              >
+                {profileError ||
+                  t(
+                    "profile.errors.load"
+                  )}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void loadProfile();
+                }}
+                className="
+                  mt-7
+                  inline-flex
+                  items-center
+                  justify-center
+                  gap-2
+                  rounded-2xl
+                  bg-gradient-to-r
+                  from-cyan-500
+                  to-indigo-600
+                  px-6
+                  py-3.5
+                  font-bold
+                  text-white
+                  shadow-lg
+                  shadow-cyan-500/20
+                  transition-all
+                  duration-200
+                  hover:-translate-y-0.5
+                  hover:from-cyan-400
+                  hover:to-indigo-500
+                "
+              >
+                <RefreshCw size={18} />
+
+                {t(
+                  "profile.actions.tryAgain"
+                )}
+              </button>
+            </motion.div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // MAIN PROFILE
+  // =========================================================
 
   return (
     <div
+      dir={direction}
       className="
-        flex
-        bg-gradient-to-br
-        from-[#020617]
-        via-[#07122b]
-        to-[#020617]
+        sahab-profile-page relative
         min-h-screen
-        text-white
+        w-full
+        min-w-0
+        overflow-x-hidden
+
+        text-slate-900
+        transition-colors
+        duration-300
+
+        dark:text-white
       "
     >
-      <Sidebar />
 
-      <div className="flex-1">
-        <Navbar />
 
-        <div className="p-8">
-          <div className="mb-10">
-            <h1 className="text-5xl font-black tracking-tight">
-              My Profile
-            </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              Manage your account information
-            </p>
-          </div>
+      {/* =====================================================
+          AMBIENT BACKGROUND
+      ===================================================== */}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-4xl">
-            {/* PROFILE INFO */}
-            <div
-              className="
-                bg-white/5
-                border
-                border-white/10
-                backdrop-blur-2xl
-                rounded-[32px]
-                p-8
-              "
-            >
-              <div className="flex items-center gap-4 mb-8">
-                <div
-                  className="
-                    w-16
-                    h-16
-                    rounded-2xl
-                    bg-gradient-to-br
-                    from-blue-500
-                    to-cyan-400
-                    flex
-                    items-center
-                    justify-center
-                    font-black
-                    text-2xl
-                    shadow-lg
-                  "
-                >
-                  {initial}
-                </div>
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-32 left-1/3 h-[380px] w-[380px] rounded-full bg-cyan-400/[0.035] blur-[120px] dark:bg-cyan-500/[0.05]" />
 
-                <div>
-                  <p className="font-bold text-lg">{user?.name}</p>
-                  <span
-                    className={`
-                      inline-block
-                      mt-1
-                      px-3
-                      py-1
-                      rounded-full
-                      text-xs
-                      font-bold
-                      ${
-                        user?.role === "ADMIN"
-                          ? "bg-purple-500/20 text-purple-400"
-                          : "bg-blue-500/20 text-blue-400"
-                      }
-                    `}
-                  >
-                    {user?.role}
+        <div className="absolute top-1/3 -right-32 h-[380px] w-[380px] rounded-full bg-indigo-500/[0.025] blur-[120px] dark:bg-indigo-500/[0.04]" />
+
+        <div className="absolute bottom-0 left-1/4 h-[320px] w-[320px] rounded-full bg-violet-500/[0.02] blur-[120px] dark:bg-violet-500/[0.035]" />
+
+        <div
+          className="
+            absolute
+            inset-0
+            opacity-[0.015]
+            dark:opacity-[0.025]
+            [background-image:linear-gradient(rgba(100,116,139,0.35)_1px,transparent_1px),linear-gradient(90deg,rgba(100,116,139,0.35)_1px,transparent_1px)]
+            [background-size:64px_64px]
+          "
+        />
+      </div>
+
+      {/* =====================================================
+          CONTENT
+      ===================================================== */}
+
+      <main className="relative z-10 min-h-screen">
+        <div
+          className="
+            relative
+            mx-auto
+            w-full
+            min-w-0
+            max-w-[1700px]
+            px-3
+            py-4
+            sm:px-5
+            sm:py-5
+            lg:px-7
+            lg:py-7
+            xl:px-8
+          "
+        >
+          {/* =================================================
+              PAGE INTRO
+          ================================================= */}
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 10,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.35,
+            }}
+            className="
+              mb-5
+              flex
+              flex-col
+              gap-4
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+            "
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="
+                  flex
+                  h-11
+                  w-11
+                  items-center
+                  justify-center
+                  rounded-2xl
+                  border
+                  border-cyan-500/15
+                  bg-cyan-500/10
+                "
+              >
+                <UserRound
+                  size={20}
+                  className="text-cyan-500 dark:text-cyan-400"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <Sparkles
+                    size={13}
+                    className="text-cyan-500 dark:text-cyan-400"
+                  />
+
+                  <span className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-500 dark:text-cyan-400">
+                    {isArabic
+                      ? "الحساب الشخصي"
+                      : "Personal Account"}
                   </span>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 mb-5">
-                <UserIcon size={18} className="text-blue-400" />
-                <h2 className="text-lg font-bold">Profile Information</h2>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-gray-400 text-sm font-semibold">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="
-                      bg-white/5
-                      border
-                      border-white/10
-                      rounded-2xl
-                      px-5
-                      py-3
-                      text-white
-                      outline-none
-                      focus:border-blue-400/50
-                      transition
-                    "
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-gray-400 text-sm font-semibold">
-                    Email
-                  </label>
-                  <input
-                    type="text"
-                    value={user?.email || ""}
-                    disabled
-                    className="
-                      bg-white/5
-                      border
-                      border-white/10
-                      rounded-2xl
-                      px-5
-                      py-3
-                      text-gray-500
-                      outline-none
-                      cursor-not-allowed
-                    "
-                  />
-                  <p className="text-xs text-gray-500">
-                    Email can't be changed here since it's tied to your
-                    login.
-                  </p>
-                </div>
-
-                <button
-                  onClick={handleSaveProfile}
-                  disabled={savingProfile}
-                  className="
-                    bg-gradient-to-r
-                    from-blue-500
-                    to-cyan-500
-                    hover:scale-[1.02]
-                    transition-all
-                    duration-300
-                    px-6
-                    py-3
-                    rounded-2xl
-                    font-semibold
-                    shadow-lg
-                    shadow-blue-500/20
-                    disabled:opacity-50
-                    disabled:cursor-not-allowed
-                    disabled:hover:scale-100
-                  "
-                >
-                  {savingProfile ? "Saving..." : "Save Changes"}
-                </button>
+                <h1 className="mt-0.5 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">
+                  {isArabic
+                    ? "ملفي الشخصي"
+                    : "My Profile"}
+                </h1>
               </div>
             </div>
 
-            {/* CHANGE PASSWORD */}
             <div
               className="
-                bg-white/5
+                inline-flex
+                w-fit
+                items-center
+                gap-2
+                rounded-full
                 border
-                border-white/10
-                backdrop-blur-2xl
-                rounded-[32px]
-                p-8
+                border-emerald-500/15
+                bg-emerald-500/5
+                px-3.5
+                py-2
+                text-xs
+                font-semibold
+                text-emerald-600
+                dark:text-emerald-400
               "
             >
-              <div className="flex items-center gap-2 mb-5">
-                <Lock size={18} className="text-blue-400" />
-                <h2 className="text-lg font-bold">Change Password</h2>
-              </div>
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
 
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-gray-400 text-sm font-semibold">
-                    Current Password
-                  </label>
-                  <input
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) =>
-                      setCurrentPassword(e.target.value)
-                    }
-                    className="
-                      bg-white/5
-                      border
-                      border-white/10
-                      rounded-2xl
-                      px-5
-                      py-3
-                      text-white
-                      outline-none
-                      focus:border-blue-400/50
-                      transition
-                    "
-                  />
-                </div>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
 
-                <div className="flex flex-col gap-2">
-                  <label className="text-gray-400 text-sm font-semibold">
-                    New Password
-                  </label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="
-                      bg-white/5
-                      border
-                      border-white/10
-                      rounded-2xl
-                      px-5
-                      py-3
-                      text-white
-                      outline-none
-                      focus:border-blue-400/50
-                      transition
-                    "
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="text-gray-400 text-sm font-semibold">
-                    Confirm New Password
-                  </label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) =>
-                      setConfirmPassword(e.target.value)
-                    }
-                    className="
-                      bg-white/5
-                      border
-                      border-white/10
-                      rounded-2xl
-                      px-5
-                      py-3
-                      text-white
-                      outline-none
-                      focus:border-blue-400/50
-                      transition
-                    "
-                  />
-                </div>
-
-                <button
-                  onClick={handleChangePassword}
-                  disabled={savingPassword}
-                  className="
-                    bg-white/10
-                    hover:bg-white/20
-                    border
-                    border-white/10
-                    transition-all
-                    duration-300
-                    px-6
-                    py-3
-                    rounded-2xl
-                    font-semibold
-                    disabled:opacity-50
-                    disabled:cursor-not-allowed
-                  "
-                >
-                  {savingPassword ? "Updating..." : "Update Password"}
-                </button>
-              </div>
+              {isArabic
+                ? "الحساب نشط"
+                : "Account Active"}
             </div>
+          </motion.div>
 
-            {/* DOCUMENTS — lg:col-span-2 عشان تاخذ العرض كامل */}
+          {/* =================================================
+              PROFILE HEADER
+          ================================================= */}
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 15,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.4,
+              delay: 0.05,
+            }}
+            className="w-full min-w-0"
+          >
+            <ProfileHeader
+              profile={profile}
+              onEdit={openEditModal}
+            />
+          </motion.div>
+
+          {/* =================================================
+              TABS
+          ================================================= */}
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 12,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.4,
+              delay: 0.1,
+            }}
+            className="mt-4 w-full min-w-0 sm:mt-5"
+          >
             <div
               className="
-                lg:col-span-2
-                bg-white/5
-                border
-                border-white/10
-                backdrop-blur-2xl
-                rounded-[32px]
-                p-8
+                w-full
+                min-w-0
+                overflow-x-auto
+                overscroll-x-contain
+                rounded-2xl
               "
             >
-              <div className="flex items-center gap-2 mb-6">
-                <FileText size={18} className="text-purple-400" />
-                <h2 className="text-lg font-bold">Documents</h2>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* CV */}
-                <div
-                  className="
-                    p-5
-                    rounded-2xl
-                    bg-purple-500/5
-                    border
-                    border-purple-500/20
-                  "
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">CV / Resume</p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        PDF, DOC or DOCX
-                      </p>
-                    </div>
-
-                    <FileText size={24} className="text-purple-400" />
-                  </div>
-
-                  {documents
-                    .filter((doc) => doc.type === "CV")
-                    .map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="
-                          mt-4
-                          p-3
-                          rounded-xl
-                          bg-white/5
-                          border
-                          border-white/10
-                        "
-                      >
-                        <p className="text-sm truncate">
-                          {doc.originalName}
-                        </p>
-
-                        <a
-                          href={`http://localhost:8080/profile/documents/${doc.id}/download`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="
-                            mt-2
-                            inline-flex
-                            items-center
-                            gap-2
-                            text-blue-400
-                            hover:text-blue-300
-                            text-sm
-                          "
-                        >
-                          <Download size={16} />
-                          Download
-                        </a>
-                      </div>
-                    ))}
-
-                  <label
-                    className="
-                      mt-4
-                      inline-flex
-                      items-center
-                      gap-2
-                      px-4
-                      py-2.5
-                      rounded-2xl
-                      bg-purple-600
-                      hover:bg-purple-700
-                      cursor-pointer
-                      font-semibold
-                      transition
-                    "
-                  >
-                    <Upload size={17} />
-                    {uploadingCV ? "Uploading..." : "Upload CV"}
-
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx"
-                      className="hidden"
-                      onChange={handleUploadCV}
-                      disabled={uploadingCV}
-                    />
-                  </label>
-                </div>
-
-                {/* ATTACHMENTS */}
-                <div
-                  className="
-                    p-5
-                    rounded-2xl
-                    bg-blue-500/5
-                    border
-                    border-blue-500/20
-                  "
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">Attachments</p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Supporting documents
-                      </p>
-                    </div>
-
-                    <Upload size={24} className="text-blue-400" />
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    {documents
-                      .filter((doc) => doc.type === "ATTACHMENT")
-                      .map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="
-                            flex
-                            items-center
-                            justify-between
-                            gap-3
-                            p-3
-                            rounded-xl
-                            bg-white/5
-                            border
-                            border-white/10
-                          "
-                        >
-                          <span className="text-sm truncate">
-                            {doc.originalName}
-                          </span>
-
-                          <a
-                            href={`http://localhost:8080/profile/documents/${doc.id}/download`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-400"
-                          >
-                            <Download size={17} />
-                          </a>
-                        </div>
-                      ))}
-                  </div>
-
-                  <label
-                    className="
-                      mt-4
-                      inline-flex
-                      items-center
-                      gap-2
-                      px-4
-                      py-2.5
-                      rounded-2xl
-                      bg-blue-600
-                      hover:bg-blue-700
-                      cursor-pointer
-                      font-semibold
-                      transition
-                    "
-                  >
-                    <Upload size={17} />
-                    {uploadingAttachment
-                      ? "Uploading..."
-                      : "Upload Attachment"}
-
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                      className="hidden"
-                      onChange={handleUploadAttachment}
-                      disabled={uploadingAttachment}
-                    />
-                  </label>
-                </div>
+              <div className="min-w-max">
+                <ProfileTabs
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                />
               </div>
             </div>
-          </div>
+          </motion.div>
+
+          {/* =================================================
+              CONTENT
+          ================================================= */}
+
+          <motion.div
+            key={activeTab}
+            initial={{
+              opacity: 0,
+              y: 10,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.3,
+            }}
+            className="mt-5 w-full min-w-0 sm:mt-6"
+          >
+            {/* =================================================
+                OVERVIEW
+            ================================================= */}
+
+            {activeTab === "overview" && (
+              <div className="w-full min-w-0">
+                <ProfileOverview
+                  profile={profile}
+                  documents={documents}
+                  onEdit={openEditModal}
+                  onDocuments={
+                    handleDocumentsTab
+                  }
+                  onSecurity={() =>
+                    setActiveTab(
+                      "security"
+                    )
+                  }
+                />
+              </div>
+            )}
+
+            {/* =================================================
+                PERSONAL
+            ================================================= */}
+
+            {activeTab === "personal" && (
+              <div className="w-full min-w-0">
+                <ProfilePersonal
+                  profile={profile}
+                  onEdit={openEditModal}
+                />
+              </div>
+            )}
+
+            {/* =================================================
+                EMPLOYMENT
+            ================================================= */}
+
+            {activeTab === "employment" && (
+              <div className="w-full min-w-0">
+                <ProfileEmployment
+                  profile={profile}
+                  onEdit={openEditModal}
+                />
+              </div>
+            )}
+
+            {/* =================================================
+                DOCUMENTS
+            ================================================= */}
+
+            {activeTab === "documents" && (
+              <div className="relative w-full min-w-0">
+                {documentsLoading && (
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      y: -5,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                    }}
+                    className="
+                      pointer-events-none
+                      absolute
+                      top-3
+                      z-20
+                      flex
+                      items-center
+                      gap-2
+                      rounded-xl
+                      border
+                      border-slate-200
+                      bg-white/95
+                      px-3
+                      py-2
+                      text-xs
+                      text-slate-500
+                      shadow-xl
+                      backdrop-blur-xl
+                      dark:border-white/[0.08]
+                      dark:bg-[#071225]/95
+                      dark:text-slate-400
+                      sm:top-4
+                    "
+                    style={
+                      isArabic
+                        ? {
+                            right: "1rem",
+                          }
+                        : {
+                            left: "1rem",
+                          }
+                    }
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+
+                    {t(
+                      "profile.documents.updating"
+                    )}
+                  </motion.div>
+                )}
+
+                <div className="w-full min-w-0">
+                  <ProfileDocuments
+                    documents={documents}
+                    onUpload={handleUpload}
+                    onView={
+                      handleViewDocument
+                    }
+                    uploading={uploading}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* =================================================
+                SECURITY
+            ================================================= */}
+
+            {activeTab === "security" && (
+              <div className="w-full min-w-0">
+                <ProfileSecurity
+                  profile={profile}
+                  onChangePassword={
+                    openPasswordModal
+                  }
+                />
+              </div>
+            )}
+          </motion.div>
+
+          {/* =================================================
+              SECURITY FOOTER
+          ================================================= */}
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 10,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: 0.4,
+              delay: 0.2,
+            }}
+            className="
+              mt-6
+              flex
+              flex-col
+              gap-3
+              rounded-2xl
+              border
+              border-slate-200
+              bg-white/70
+              p-4
+              backdrop-blur-xl
+              dark:border-white/[0.07]
+              dark:bg-white/[0.025]
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+            "
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="
+                  flex
+                  h-9
+                  w-9
+                  shrink-0
+                  items-center
+                  justify-center
+                  rounded-xl
+                  bg-emerald-500/10
+                "
+              >
+                <ShieldCheck
+                  size={18}
+                  className="text-emerald-500 dark:text-emerald-400"
+                />
+              </div>
+
+              <div>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {isArabic
+                    ? "بياناتك محمية"
+                    : "Your information is protected"}
+                </p>
+
+                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-500">
+                  {isArabic
+                    ? "يمكنك تعديل بياناتك الشخصية والمصرفية من خلال الملف الشخصي."
+                    : "You can update your personal and banking information from your profile."}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+               Management System
+            </div>
+          </motion.div>
         </div>
-      </div>
+      </main>
+
+      {/* =====================================================
+          EDIT PROFILE MODAL
+      ===================================================== */}
+
+      <EditProfileModal
+        open={editing}
+        profile={profile}
+        form={form}
+        setForm={setForm}
+        onClose={closeEditModal}
+        onSave={handleSaveProfile}
+        saving={savingProfile}
+      />
+
+      {/* =====================================================
+          CHANGE PASSWORD MODAL
+      ===================================================== */}
+
+      <ChangePasswordModal
+        open={changingPassword}
+        currentPassword={
+          passwordForm.currentPassword
+        }
+        newPassword={
+          passwordForm.newPassword
+        }
+        confirmPassword={
+          passwordForm.confirmPassword
+        }
+        setCurrentPassword={(value) =>
+          setPasswordForm(
+            (previous) => ({
+              ...previous,
+              currentPassword:
+                value,
+            })
+          )
+        }
+        setNewPassword={(value) =>
+          setPasswordForm(
+            (previous) => ({
+              ...previous,
+              newPassword:
+                value,
+            })
+          )
+        }
+        setConfirmPassword={(value) =>
+          setPasswordForm(
+            (previous) => ({
+              ...previous,
+              confirmPassword:
+                value,
+            })
+          )
+        }
+        onClose={closePasswordModal}
+        onSave={handleChangePassword}
+        saving={savingPassword}
+      />
     </div>
   );
-}
+};
 
 export default Profile;
+
+
+/* PROFILE LIGHT MODE TEXT VISIBILITY FIX */
