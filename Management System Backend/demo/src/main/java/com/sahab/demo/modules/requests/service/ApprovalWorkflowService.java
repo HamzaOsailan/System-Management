@@ -1,6 +1,8 @@
 
 package com.sahab.demo.modules.requests.service;
-import com.sahab.demo.service.NotificationService;
+import com.sahab.demo.modules.notifications.service.NotificationService;
+import com.sahab.demo.modules.infrastructure.email.event.RequestNotificationEmailEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
 
 import com.sahab.demo.modules.requests.dto.RequestWorkflowDTO;
@@ -29,22 +31,22 @@ public class ApprovalWorkflowService {
     private final UserRepository userRepository;
     private final RequestRepository requestRepository;
     private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ApprovalWorkflowService(
             ApprovalStepRepository approvalStepRepository,
             UserRepository userRepository,
             RequestRepository requestRepository,
-            NotificationService notificationService
+            NotificationService notificationService,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.approvalStepRepository = approvalStepRepository;
         this.userRepository = userRepository;
         this.requestRepository = requestRepository;
         this.notificationService = notificationService;
+        this.eventPublisher = eventPublisher;
     }
 
-    // =========================================================
-    // CREATE APPROVAL WORKFLOW
-    // =========================================================
 
     @Transactional
     public void createWorkflow(Request request) {
@@ -54,10 +56,6 @@ public class ApprovalWorkflowService {
                     "Request not found"
             );
         }
-
-        // =====================================================
-        // LOCK REQUEST
-        // =====================================================
 
         Request lockedRequest =
                 requestRepository
@@ -70,19 +68,11 @@ public class ApprovalWorkflowService {
 
         request = lockedRequest;
 
-        // =====================================================
-        // ONLY PENDING REQUESTS CAN HAVE A NEW WORKFLOW
-        // =====================================================
-
         if (request.getStatus() != RequestStatus.PENDING) {
             throw new RuntimeException(
                     "Only pending requests can have an approval workflow"
             );
         }
-
-        // =====================================================
-        // PREVENT DUPLICATE WORKFLOW
-        // =====================================================
 
         if (!approvalStepRepository
                 .findByRequestOrderByStepOrderAsc(request)
@@ -99,21 +89,12 @@ public class ApprovalWorkflowService {
             );
         }
 
-        // =====================================================
-        // LEAVE WORKFLOW
-        // =====================================================
-
         if (request.getCategory() == RequestCategory.LEAVE) {
 
             createLeaveWorkflow(request);
 
             return;
         }
-
-        // =====================================================
-        // USER
-        // USER -> MANAGER -> ADMIN
-        // =====================================================
 
         if (requestOwner.getRole() == Role.USER) {
 
@@ -122,11 +103,6 @@ public class ApprovalWorkflowService {
             return;
         }
 
-        // =====================================================
-        // MANAGER
-        // MANAGER -> ADMIN
-        // =====================================================
-
         if (requestOwner.getRole() == Role.MANAGER) {
 
             createManagerNormalWorkflow(request);
@@ -134,22 +110,6 @@ public class ApprovalWorkflowService {
             return;
         }
 
-        // =====================================================
-        // ADMIN
-        // ADMIN -> ADMIN
-        // =====================================================
-
-        if (requestOwner.getRole() == Role.ADMIN) {
-
-            createAdminOnlyWorkflow(request);
-
-            return;
-        }
-
-        // =====================================================
-        // HR
-        // HR -> ADMIN
-        // =====================================================
 
         if (requestOwner.getRole() == Role.HR) {
 
@@ -215,6 +175,13 @@ public class ApprovalWorkflowService {
                 assignedManager,
                 "A new request is waiting for your approval."
         );
+
+        publishApprovalEmails(
+                request,
+                List.of(assignedManager),
+                Role.MANAGER,
+                "Manager approval"
+        );
     }
 
     // =========================================================
@@ -237,6 +204,13 @@ public class ApprovalWorkflowService {
         List<User> admins =
                 userRepository.findByRole(Role.ADMIN);
 
+        publishApprovalEmails(
+                request,
+                admins,
+                Role.ADMIN,
+                "Administrator approval"
+        );
+
         for (User admin : admins) {
 
             notificationService.createNotification(
@@ -256,18 +230,28 @@ public class ApprovalWorkflowService {
     // ADMIN -> ADMIN
     // =========================================================
 
-    private void createAdminOnlyWorkflow(Request request) {
-
-        ApprovalStep adminStep = new ApprovalStep();
-
-        adminStep.setRequest(request);
-        adminStep.setStepOrder(1);
-        adminStep.setRequiredRole(Role.ADMIN);
-        adminStep.setStatus(ApprovalStepStatus.PENDING);
-        adminStep.setApprover(null);
-
-        approvalStepRepository.save(adminStep);
-    }
+//    private void createAdminOnlyWorkflow(Request request) {
+//
+//        ApprovalStep adminStep = new ApprovalStep();
+//
+//        adminStep.setRequest(request);
+//        adminStep.setStepOrder(1);
+//        adminStep.setRequiredRole(Role.ADMIN);
+//        adminStep.setStatus(ApprovalStepStatus.PENDING);
+//        adminStep.setApprover(null);
+//
+//        approvalStepRepository.save(adminStep);
+//
+//        List<User> admins =
+//                userRepository.findByRole(Role.ADMIN);
+//
+//        publishApprovalEmails(
+//                request,
+//                admins,
+//                Role.ADMIN,
+//                "Administrator approval"
+//        );
+//    }
 
     // =========================================================
     // HR NORMAL WORKFLOW
@@ -292,6 +276,13 @@ public class ApprovalWorkflowService {
 
         List<User> admins =
                 userRepository.findByRole(Role.ADMIN);
+
+        publishApprovalEmails(
+                request,
+                admins,
+                Role.ADMIN,
+                "Administrator approval"
+        );
 
         for (User admin : admins) {
 
@@ -357,6 +348,7 @@ public class ApprovalWorkflowService {
             managerStep.setStatus(ApprovalStepStatus.PENDING);
             managerStep.setApprover(assignedManager);
 
+            approvalStepRepository.save(managerStep);
             // =================================================
             // STEP 2 - HR
             // =================================================
@@ -368,13 +360,18 @@ public class ApprovalWorkflowService {
             hrStep.setRequiredRole(Role.HR);
             hrStep.setStatus(ApprovalStepStatus.WAITING);
             hrStep.setApprover(null);
-
-            approvalStepRepository.save(managerStep);
             approvalStepRepository.save(hrStep);
 
             notificationService.createNotification(
                     assignedManager,
                     "A new leave request is waiting for your approval."
+            );
+
+            publishApprovalEmails(
+                    request,
+                    List.of(assignedManager),
+                    Role.MANAGER,
+                    "Leave request manager approval"
             );
 
             return;
@@ -409,19 +406,44 @@ public class ApprovalWorkflowService {
         }
 
         // =====================================================
-        // HR -> HR
+        // HR -> ADMIN
         //
-        // HR leave requests are reviewed by another HR user.
+        // HR leave requests are reviewed by an Administrator.
         // Self-approval is prevented by validateApprover().
         // =====================================================
 
         if (requestOwner.getRole() == Role.HR) {
 
-            createHrOnlyWorkflow(
-                    request,
-                    "A new leave request from an HR employee is waiting for HR approval."
-            );
+            ApprovalStep adminStep = new ApprovalStep();
 
+            adminStep.setRequest(request);
+            adminStep.setStepOrder(1);
+            adminStep.setRequiredRole(Role.ADMIN);
+            adminStep.setStatus(ApprovalStepStatus.PENDING);
+            adminStep.setApprover(null);
+
+            approvalStepRepository.save(adminStep);
+
+            List<User> admins =
+                    userRepository.findByRole(Role.ADMIN);
+
+            publishApprovalEmails(
+                    request,
+                    admins,
+                    Role.ADMIN,
+                    "Administrator approval"
+            );
+            for (User admin : admins) {
+                notificationService.createNotification(
+                        admin,
+                        "A new leave request from an HR employee is waiting for your approval."
+                );
+            }
+
+            notificationService.createNotification(
+                    requestOwner,
+                    "A new leave request is waiting for Admin approval."
+            );
             return;
         }
 
@@ -451,6 +473,13 @@ public class ApprovalWorkflowService {
 
         List<User> hrUsers =
                 userRepository.findByRole(Role.HR);
+
+        publishApprovalEmails(
+                request,
+                hrUsers,
+                Role.HR,
+                "HR approval"
+        );
 
         for (User hr : hrUsers) {
 
@@ -583,6 +612,13 @@ public class ApprovalWorkflowService {
             List<User> hrUsers =
                     userRepository.findByRole(Role.HR);
 
+            publishApprovalEmails(
+                    request,
+                    hrUsers,
+                    Role.HR,
+                    "HR approval"
+            );
+
             for (User hr : hrUsers) {
 
                 notificationService.createNotification(
@@ -630,6 +666,13 @@ public class ApprovalWorkflowService {
             List<User> admins =
                     userRepository.findByRole(Role.ADMIN);
 
+            publishApprovalEmails(
+                    request,
+                    admins,
+                    Role.ADMIN,
+                    "Administrator approval"
+            );
+
             for (User admin : admins) {
 
                 notificationService.createNotification(
@@ -675,6 +718,23 @@ public class ApprovalWorkflowService {
         // =====================================================
         // NORMAL - ADMIN APPROVED
         // =====================================================
+        if (
+                request.getCategory() == RequestCategory.LEAVE
+                        &&
+                        currentStep.getRequiredRole() == Role.ADMIN
+                        &&
+                        request.getUser().getRole() == Role.HR
+        ){
+            request.setStatus(RequestStatus.APPROVED);
+            request.setCompletedAt(LocalDateTime.now());
+            notificationService.createNotification(
+                    request.getUser(),
+                    "Your leave request has been fully approved by Admin."
+            );
+
+            return true;
+
+        }
 
         if (
                 request.getCategory() != RequestCategory.LEAVE
@@ -1134,6 +1194,68 @@ public class ApprovalWorkflowService {
         throw new AccessDeniedException(
                 "You are not allowed to view this workflow"
         );
+    }
+
+    private void publishApprovalEmails(
+            Request request,
+            List<User> recipients,
+            Role requiredRole,
+            String stage
+    ) {
+        if (request == null || request.getUser() == null || recipients == null) {
+            return;
+        }
+
+        Long ownerId = request.getUser().getId();
+        java.util.Set<String> sentRecipients = new java.util.HashSet<>();
+
+        String requestTitle = request.getTitle() == null
+                ? "Request"
+                : request.getTitle();
+
+        String subject = "Management System - " + stage
+                + " required for request #" + request.getId();
+
+        for (User recipient : recipients) {
+            if (recipient == null
+                    || recipient.getRole() != requiredRole
+                    || recipient.getEmail() == null
+                    || recipient.getEmail().isBlank()) {
+                continue;
+            }
+
+            if (ownerId != null
+                    && ownerId.equals(recipient.getId())) {
+                continue;
+            }
+
+            String emailKey = recipient.getEmail().trim().toLowerCase(
+                    java.util.Locale.ROOT
+            );
+
+            if (!sentRecipients.add(emailKey)) {
+                continue;
+            }
+
+            String recipientName = recipient.getName() == null
+                    ? "User"
+                    : recipient.getName();
+
+            String body = "A request requires your review."
+                    + "\n\nRequest ID: #" + request.getId()
+                    + "\nTitle: " + requestTitle
+                    + "\nApproval stage: " + stage
+                    + "\n\nPlease sign in to Management System to review the request.";
+
+            eventPublisher.publishEvent(
+                    new RequestNotificationEmailEvent(
+                            recipient.getEmail(),
+                            recipientName,
+                            subject,
+                            body
+                    )
+            );
+        }
     }
 
     // =========================================================
